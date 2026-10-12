@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>HRIS 引擎测试</title>
+<style>
+  body { font-family:-apple-system,"PingFang SC",sans-serif; padding:24px; }
+  li.pass { color:#16a34a; } li.fail { color:#dc2626; font-weight:600; }
+  #summary { font-size:1.1rem; font-weight:700; }
+</style>
+</head>
+<body>
+<h1>HRIS 引擎测试</h1>
+<div id="summary"></div>
+<ul id="out"></ul>
+<script src="src/data.js"></script>
+<script src="src/workflow.js"></script>
+<script>
+  const results = [];
+  function test(name, fn) {
+    try { fn(); results.push([name, true]); }
+    catch (e) { results.push([name + " — " + e.message, false]); }
+  }
+  function eq(a, b) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`期望 ${JSON.stringify(b)}，实际 ${JSON.stringify(a)}`); }
+  function throws(fn, text) {
+    try { fn(); } catch (e) { if (!e.message.includes(text)) throw new Error(`错误信息不符：${e.message}`); return; }
+    throw new Error("应当抛错");
+  }
+  const T = "2026-10-12 10:00";
+  const labels = (chain) => chain.map((s) => s.label);
+  const fresh = () => HR.initState();
+  const staffOf = (s, dept) => HR.active(s).find((p) => p.dept === dept && p.title !== "部门负责人");
+
+  test("入职：编制已满的部门自动加超编审批", () => {
+    const s = fresh();
+    eq(HR.headcount(s, "D21"), 7);
+    eq(labels(HR.buildChain(s, "onboard", { dept: "D21", grade: "P5" })), ["HRBP 初审", "用人部门确认", "超编审批"]);
+    eq(labels(HR.buildChain(s, "onboard", { dept: "D22", grade: "P5" })), ["HRBP 初审", "用人部门确认"]);
+  });
+
+  test("入职：高职级与超编落在同一审批人时合并为一个节点", () => {
+    const chain = HR.buildChain(fresh(), "onboard", { dept: "D21", grade: "P7" });
+    eq(labels(chain), ["HRBP 初审", "用人部门确认", "超编审批 · 高职级审批"]);
+  });
+
+  test("调岗：跨事业部需要两边事业部负责人", () => {
+    const s = fresh();
+    const emp = staffOf(s, "D11");
+    eq(labels(HR.buildChain(s, "move", { employee: emp.id, from: "D11", to: "D22" })),
+      ["调出部门同意", "调入部门接收", "调出事业部同意", "调入事业部接收", "HRBP 办理"]);
+    eq(labels(HR.buildChain(s, "move", { employee: emp.id, from: "D11", to: "D12" })), ["调出部门同意", "调入部门接收", "HRBP 办理"]);
+  });
+
+  test("部门负责人的直属上级是事业部负责人", () => {
+    const s = fresh();
+    eq(HR.managerOf(s, "E07"), "E03");
+    eq(HR.managerOf(s, staffOf(s, "D21").id), "E07");
+  });
+
+  test("审批走完后生效：入职新增试用期员工", () => {
+    const s = fresh();
+    const before = HR.active(s).length;
+    const r = HR.submit(s, "onboard", { name: "测试员", dept: "D22", title: "渠道经理", grade: "P5", start: "2026-11-02" }, "E09", T);
+    r.chain.forEach((step) => HR.approve(s, r, step.approver, T));
+    eq(r.status, "approved");
+    eq(HR.active(s).length, before + 1);
+    eq(s.people[s.people.length - 1].status, "试用");
+  });
+
+  test("非当前审批人不能操作；驳回必须填原因", () => {
+    const s = fresh();
+    const r = s.requests.find((x) => x.id === "R-1002");
+    throws(() => HR.approve(s, r, "E01", T), "不是你的审批节点");
+    throws(() => HR.reject(s, r, r.chain[0].approver, T, ""), "必须填写原因");
+  });
+
+  test("退回上一步与撤回", () => {
+    const s = fresh();
+    const r = s.requests.find((x) => x.id === "R-1001");
+    eq(r.step, 1);
+    HR.sendBack(s, r, r.chain[1].approver, T, "补充简历");
+    eq(r.step, 0);
+    throws(() => HR.sendBack(s, r, r.chain[0].approver, T), "第一个节点");
+    throws(() => HR.withdraw(s, r, "E01", T), "只有申请人");
+    HR.withdraw(s, r, r.applicant, T);
+    eq(r.status, "withdrawn");
+    throws(() => HR.approve(s, r, r.chain[0].approver, T), "流程已撤回");
+  });
+
+  test("校验：同一员工不能同时有两个进行中流程；转正只限试用期", () => {
+    const s = fresh();
+    eq(HR.validate(s, "exit", { employee: "E20", last_day: "2026-11-30" }), ["该员工已有进行中的流程 R-1003"]);
+    const regular = HR.active(s).find((p) => p.status === "正式" && p.title !== "部门负责人" && p.dept.startsWith("D"));
+    eq(HR.validate(s, "confirm", { employee: regular.id }), ["只有试用期员工可以发起转正"]);
+  });
+
+  test("OA 报文：字段映射与必填校验", () => {
+    const s = fresh();
+    const { payload, errors } = HR.buildOAPayload(s.requests.find((x) => x.id === "R-1001"));
+    eq(errors, []);
+    eq([payload.fd_flow_code, payload.fd_dept_code, payload.fd_level, payload.fd_entry_date], ["HR_ENTRY", "ORG-D21", "L06", "20261101"]);
+    const bad = HR.buildOAPayload({ id: "R-9", type: "onboard", applicant: "E09", form: { name: "x", dept: "D21", grade: "P99", start: "2026-11-01" } });
+    eq(bad.errors, ["职级（fd_level）为空或无法映射"]);
+  });
+
+  test("OA 同步：失败退避重试，成功后幂等跳过", () => {
+    const s = fresh();
+    const r = s.requests.find((x) => x.id === "R-1001");
+    const log = [];
+    const transport = HR.mockOA({ "R-1001": 2 });
+    eq(HR.syncToOA(r, transport, (l) => log.push(l)).attempts, 3);
+    eq(r.oaId, "OA-1001");
+    eq(HR.syncToOA(r, transport, (l) => log.push(l)).skipped, true);
+    const r2 = s.requests.find((x) => x.id === "R-1002");
+    eq(HR.syncToOA(r2, HR.mockOA({ "R-1002": 5 }), () => {}).ok, false);
+    eq(r2.oaId, undefined);
+  });
+
+  test("看板：编制使用率与审批时长", () => {
+    const s = fresh();
+    const m = HR.dashboard(s);
+    eq([m.staffed, m.budget, m.pending], [33, 41, 3]);
+    const r = s.requests.find((x) => x.id === "R-1003");
+    r.chain.forEach((step, i) => HR.approve(s, r, step.approver, `2026-10-1${i} 10:00`));
+    eq(HR.dashboard(s).byType.exit, 1);
+  });
+
+  const passed = results.filter((r) => r[1]).length;
+  document.getElementById("summary").textContent = `${passed} / ${results.length} 通过`;
+  document.getElementById("out").innerHTML = results.map(([n, ok]) => `<li class="${ok ? "pass" : "fail"}">${ok ? "✓" : "✗"} ${n}</li>`).join("");
+  document.title = `${passed}/${results.length} passed`;
+</script>
+</body>
+</html>

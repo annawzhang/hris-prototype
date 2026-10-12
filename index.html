@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HRIS Prototype · 人事流程与组织编制原型</title>
+<link rel="stylesheet" href="src/style.css" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><strong>HRIS Prototype</strong><span>人事流程与组织编制原型</span><span class="badge">虚构组织，数据存在本机浏览器</span></div>
+  <nav id="tabs">
+    <button data-tab="approvals" class="on">审批中心</button>
+    <button data-tab="org">组织编制</button>
+    <button data-tab="dashboard">看板</button>
+    <button data-tab="oa">OA 联调</button>
+  </nav>
+  <div class="who">当前身份 <select id="identity"></select> <button id="reset" class="ghost" title="清空本地数据，恢复初始状态">重置</button></div>
+</header>
+
+<main>
+  <section id="approvals" class="page">
+    <div class="split">
+      <aside class="card list">
+        <div class="list-head">
+          <div class="filters" id="filters">
+            <button data-f="mine-todo" class="on">待我审批</button><button data-f="mine">我发起</button><button data-f="all">全部</button>
+          </div>
+          <button id="new-btn">＋ 发起申请</button>
+        </div>
+        <ul id="req-list"></ul>
+      </aside>
+      <div class="card detail" id="detail"></div>
+    </div>
+  </section>
+
+  <section id="org" class="page" hidden>
+    <div class="split">
+      <div class="card"><h2>组织架构与编制</h2><div id="tree"></div></div>
+      <div class="card" id="members"></div>
+    </div>
+  </section>
+
+  <section id="dashboard" class="page" hidden></section>
+
+  <section id="oa" class="page" hidden>
+    <div class="split even">
+      <div class="card">
+        <h2>字段映射（HRIS → OA）</h2>
+        <div class="row">流程类型 <select id="map-type"></select></div>
+        <table id="map-table"></table>
+      </div>
+      <div class="card">
+        <h2>同步到 OA</h2>
+        <p class="muted">把「已通过、未同步」的流程推送到 OA。接口偶发 502 时按 1s / 2s 退避重试，最多 3 次；同一单号重复推送会被幂等跳过。</p>
+        <label class="row"><input type="checkbox" id="fault" checked /> 模拟网关故障（每个单号前 2 次调用返回 502）</label>
+        <div class="row"><button id="sync-btn">同步已通过的流程</button> <button id="resync-btn" class="ghost">再推一次（验证幂等）</button></div>
+        <ul id="oa-log" class="log"></ul>
+        <pre id="oa-payload" hidden></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<dialog id="new-dialog">
+  <form method="dialog" id="new-form">
+    <h2>发起申请</h2>
+    <div class="row">流程 <select id="new-type"></select></div>
+    <div id="new-fields"></div>
+    <div class="chain-preview"><div class="muted">审批链预览（按当前组织与编制实时计算）</div><ol id="new-chain"></ol></div>
+    <div id="new-errors" class="errors"></div>
+    <div class="row end"><button value="cancel" class="ghost" formnovalidate>取消</button><button id="new-submit" value="ok">提交</button></div>
+  </form>
+</dialog>
+
+<script src="src/data.js"></script>
+<script src="src/workflow.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
