@@ -2,6 +2,11 @@
 
 **一个能真的点下去的 HR 系统原型：入 / 转 / 调 / 离的审批链按组织和编制实时算出来，审批通过立即改动人员数据，再按字段映射推送到 OA。**
 
+
+> **Copyright © 2026 张文婧 (Anna Zhang)** · [MIT License](./LICENSE) · [github.com/annawzhang](https://github.com/annawzhang)  
+> 欢迎学习与面试查阅；保留版权与许可声明。**禁止删除作者信息后冒充本人作品二次发表。** 公开内容为虚构/脱敏演示数据。
+
+
 [在线体验](https://annawzhang.github.io/hris-prototype/) · [一键演示完整链路](https://annawzhang.github.io/hris-prototype/?demo#oa) · [浏览器内测试](https://annawzhang.github.io/hris-prototype/tests.html) · 原生 JavaScript，无依赖、无构建
 
 > 组织、人员均为虚构；数据保存在你自己的浏览器（localStorage），右上角「重置」可恢复初始状态。
